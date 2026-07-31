@@ -19,6 +19,7 @@
 #include <hiredis/hiredis.h>
 
 #include <atomic>
+#include <mutex>
 
 #include "tent/runtime/metastore.h"
 #include "tent/common/utils/ip.h"
@@ -56,6 +57,14 @@ class RedisMetaStore : public MetaStore {
    private:
     std::atomic<bool> connected_;
     redisContext *client_;
+    // hiredis' synchronous redisContext is NOT thread-safe: a single context
+    // multiplexes the command output buffer and the reply reader buffer, so
+    // concurrent redisCommand() calls from different threads corrupt those
+    // shared buffers (observed as heap corruption / malloc abort while parsing
+    // a fetched segment descriptor). tent's RDMA worker threads call get()
+    // concurrently via SegmentManager::getRemote, so serialize all client_
+    // access with this mutex.
+    std::mutex client_mutex_;
 
     // Helper function for handling Redis replies
     Status handleRedisReply(redisReply *reply,

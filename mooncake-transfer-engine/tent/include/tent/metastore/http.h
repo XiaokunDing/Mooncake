@@ -18,6 +18,7 @@
 #include "tent/runtime/metastore.h"
 
 #include <atomic>
+#include <mutex>
 #include <curl/curl.h>
 
 namespace mooncake {
@@ -56,6 +57,11 @@ class HttpMetaStore : public MetaStore {
    private:
     std::atomic<bool> connected_;
     CURL *client_;
+    // A libcurl "easy" handle is NOT safe for concurrent use: get()/set()/
+    // remove() call curl_easy_reset/setopt/perform on the same shared handle,
+    // so concurrent calls from tent's RDMA worker threads race. Serialize all
+    // client_ access with this mutex.
+    std::mutex client_mutex_;
     std::string endpoint_;
 };
 }  // namespace tent

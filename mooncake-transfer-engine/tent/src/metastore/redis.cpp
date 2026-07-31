@@ -171,6 +171,7 @@ Status RedisMetaStore::handleRedisReply(redisReply *reply,
 }
 
 Status RedisMetaStore::get(const std::string &key, std::string &value) {
+    std::lock_guard<std::mutex> lock(client_mutex_);
     if (!connected_) {
         return Status::MetadataError("Redis connection not available" LOC_MARK);
     }
@@ -189,11 +190,15 @@ Status RedisMetaStore::get(const std::string &key, std::string &value) {
         return Status::InvalidEntry(key);
     }
 
-    value = std::string(resp->str);
+    // Use (str, len) rather than the C-string ctor: redis values are binary
+    // safe and may contain embedded NULs; the length-aware ctor avoids
+    // truncation and over-reads.
+    value = std::string(resp->str, resp->len);
     return Status::OK();
 }
 
 Status RedisMetaStore::set(const std::string &key, const std::string &value) {
+    std::lock_guard<std::mutex> lock(client_mutex_);
     if (!connected_) {
         return Status::MetadataError("Redis connection not available" LOC_MARK);
     }
@@ -208,6 +213,7 @@ Status RedisMetaStore::set(const std::string &key, const std::string &value) {
 }
 
 Status RedisMetaStore::remove(const std::string &key) {
+    std::lock_guard<std::mutex> lock(client_mutex_);
     if (!connected_) {
         return Status::MetadataError("Redis connection not available" LOC_MARK);
     }
