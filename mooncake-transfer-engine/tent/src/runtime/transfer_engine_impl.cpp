@@ -331,6 +331,14 @@ Status TransferEngineImpl::construct() {
     auto loader = &Platform::getLoader(conf_);
     CHECK_STATUS(topology_->discover({loader}));
 
+    // Dump the freshly discovered NIC / memory topology (including the per-GPU
+    // Tier-0/1/2 NIC ranking) right after discovery so the GPU<->NIC affinity
+    // can be verified independently of which transport ends up being loaded.
+    if (conf_->get("verbose", false)) {
+        LOG(INFO) << "Discovered topology after Topology::discover():";
+        topology_->print();
+    }
+
     metadata_ =
         std::make_shared<ControlService>(metadata_type, metadata_servers, this);
 

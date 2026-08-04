@@ -193,29 +193,67 @@ static void discoverCudaTopology(std::vector<Topology::NicEntry>& nic_list,
         }
         for (char* ch = pci_bus_id; (*ch = to_lower(*ch)); ch++);
         int numa_node = getNumaNodeFromPciDevice(pci_bus_id);
-        int min_distance = INT_MAX;
-        std::unordered_map<int, std::vector<int>> distance_map;
-        for (const auto& device : nic_list) {
-            int dist = getPciDistance(device.pci_bus_id.c_str(), pci_bus_id);
-            distance_map[dist].push_back(&device - &nic_list[0]);
-            min_distance = std::min(min_distance, dist);
-        }
 
         Topology::MemEntry entry;
         entry.name = "cuda:" + std::to_string(i);
         entry.numa_node = numa_node;
         entry.pci_bus_id = pci_bus_id;
         entry.type = Topology::MEM_CUDA;
-        if (distance_map.count(0)) {
-            // Prefer NICs with distance 0 (e.g. same PCIe switch/RC)
-            entry.device_list[0] = std::move(distance_map[0]);
-        } else if (distance_map.count(min_distance)) {
-            // No exact match — fall back to NICs with closest PCIe distance
-            entry.device_list[0] = std::move(distance_map[min_distance]);
+
+        // NUMA is a hard gate for the Tier-0 (preferred) device set: a NIC on
+        // a different NUMA node must NEVER be a preferred device for this GPU.
+        // PCIe distance is only a *secondary* sort within the same NUMA node.
+        //
+        // The previous logic ranked every NIC purely by getPciDistance(). When
+        // that distance collapses (all NICs tie, or realpath fails and returns
+        // the same value), Tier 0 swallowed cross-NUMA NICs, so the device
+        // selector could pick a NIC on the wrong socket for a GPU buffer —
+        // causing cross-NUMA RDMA (LOC_PROT / QP-to-RTR failures / perf
+        // cliffs on multi-bond dual-socket boxes). Mirrors the same-NUMA-first
+        // policy of KsanaLLM's topology_generator.get_gpu_preferred_bond().
+        int min_distance = INT_MAX;
+        std::unordered_map<int, std::vector<int>> distance_map;
+        int nic_id = 0;
+        for (const auto& device : nic_list) {
+            if (numa_node >= 0 && device.numa_node == numa_node) {
+                int dist =
+                    getPciDistance(device.pci_bus_id.c_str(), pci_bus_id);
+                distance_map[dist].push_back(nic_id);
+                min_distance = std::min(min_distance, dist);
+            }
+            nic_id++;
         }
+
+        if (!distance_map.empty()) {
+            // Closest PCIe distance within the same NUMA node wins Tier 0
+            // (distance 0 = same PCIe switch/RC). Ties keep every equally
+            // close same-NUMA NIC, preserving multi-rail parallelism.
+            int pick = distance_map.count(0) ? 0 : min_distance;
+            entry.device_list[0] = std::move(distance_map[pick]);
+        } else {
+            // numa_node unknown (< 0) or no same-NUMA NIC exists: fall back to
+            // the legacy behavior of ranking every NIC by PCIe distance, so a
+            // GPU is never left without a Tier-0 device.
+            int fb_min_distance = INT_MAX;
+            std::unordered_map<int, std::vector<int>> fb_distance_map;
+            int fb_dev_id = 0;
+            for (const auto& device : nic_list) {
+                int dist =
+                    getPciDistance(device.pci_bus_id.c_str(), pci_bus_id);
+                fb_distance_map[dist].push_back(fb_dev_id);
+                fb_min_distance = std::min(fb_min_distance, dist);
+                fb_dev_id++;
+            }
+            if (fb_distance_map.count(0))
+                entry.device_list[0] = std::move(fb_distance_map[0]);
+            else if (fb_distance_map.count(fb_min_distance))
+                entry.device_list[0] =
+                    std::move(fb_distance_map[fb_min_distance]);
+        }
+
         std::unordered_set<int> preferred_set;
-        for (const auto& dev_id : entry.device_list[0]) {
-            preferred_set.insert(dev_id);
+        for (const auto& id : entry.device_list[0]) {
+            preferred_set.insert(id);
         }
         int dev_id = 0;
         for (const auto& device : nic_list) {
