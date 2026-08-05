@@ -148,6 +148,14 @@ Status DeviceSelector::buildCandidates(const Topology::MemEntry* entry,
 
     // First pass: filter by device priority (QoS filtering)
     for (size_t rank = 0; rank < Topology::DevicePriorityRanks; ++rank) {
+        // Hard NUMA locality: skip the cross-NUMA tier (last rank) so neither
+        // the weighted split nor probe/round-robin can pick a cross-NUMA NIC.
+        // The empty-candidates fallback below still allows all tiers as a last
+        // resort, so a node with no same-NUMA NIC won't stall.
+        if (sched_params_.strict_local_numa &&
+            rank == Topology::DevicePriorityRanks - 1) {
+            continue;
+        }
         for (int dev_id : entry->device_list[rank]) {
             if (!devices_.count(dev_id)) continue;
             if ((device_mask & (1ULL << dev_id)) == 0) continue;

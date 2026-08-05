@@ -108,6 +108,10 @@ Workers::Workers(RdmaTransport* transport)
         }
     }
 
+    // Hard NUMA-locality switch: exclude the cross-NUMA tier from candidates.
+    params.strict_local_numa =
+        conf->get("transports/rdma/strict_local_numa", false);
+
     // ============================================================
     // Bandwidth Estimation (EWMA)
     // ============================================================
@@ -1026,7 +1030,7 @@ Status Workers::generatePostPath(RdmaSlice* slice) {
     if (transport_->params_->log_slice_affinity) {
         const auto* local_nic = source.topo->getNicEntry(slice->source_dev_id);
         const auto* remote_nic = target.topo->getNicEntry(slice->target_dev_id);
-        VLOG(1) << "RDMA slice affinity: source_location=" << source.location
+        LOG(INFO) << "RDMA slice affinity: source_location=" << source.location
                 << ", target_location=" << target.location
                 << ", local_device_name="
                 << (local_nic ? local_nic->name : "<unknown>")

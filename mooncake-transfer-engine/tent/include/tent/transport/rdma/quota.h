@@ -161,6 +161,14 @@ class DeviceSelector {
         double numa_tier_weights[Topology::DevicePriorityRanks] = {1.0, 5.0,
                                                                    10.0};
 
+        // Hard NUMA locality: when true, the candidate builder excludes the
+        // cross-NUMA tier (the last DevicePriorityRank) entirely, so device
+        // selection (both weighted and probe/round-robin) never picks a
+        // cross-NUMA NIC. Falls back to all tiers only if no same-NUMA device
+        // is eligible (avoids DeviceNotFound stalls). Default off preserves the
+        // soft numa_tier_weights behavior.
+        bool strict_local_numa = false;
+
         // EWMA bandwidth learning rate (0.0 = full adaptation, 1.0 = no
         // learning)
         double bandwidth_learning_rate = 0.01;

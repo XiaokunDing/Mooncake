@@ -137,6 +137,11 @@ Status ConfigHelper::loadFromEnv(Config& config) {
               "transports/rdma/disable_gpu_direct_rdma");
     setConfig(config, "MC_LOG_RDMA_SLICE_AFFINITY",
               "transports/rdma/log_slice_affinity");
+    // Hard NUMA-locality: when true, device selection excludes the cross-NUMA
+    // tier entirely (no weighted or probe cross-NUMA picks). Set via env
+    // MC_STRICT_LOCAL_NUMA=true or MC_TENT_CONF transports.rdma.strict_local_numa.
+    setConfig(config, "MC_STRICT_LOCAL_NUMA",
+              "transports/rdma/strict_local_numa");
     // Restrict which RDMA NICs the engine discovers/uses (comma-separated
     // device names). MC_TE_FILTERS is an allow-list — same name and semantics
     // as the legacy Transfer Engine's device whitelist, so a single env works
